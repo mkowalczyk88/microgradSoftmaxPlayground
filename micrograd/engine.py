@@ -1,10 +1,11 @@
+import numpy as np
 
 class Value:
     """ stores a single scalar value and its gradient """
 
     def __init__(self, data, _children=(), _op=''):
         self.data = data
-        self.grad = 0
+        self.grad = 0.0
         # internal variables used for autograd graph construction
         self._backward = lambda: None
         self._prev = set(_children)
@@ -89,6 +90,27 @@ class Value:
 
     def __rtruediv__(self, other): # other / self
         return other * self**-1
+
+    def __ge__(self, other):
+        return self.data >= other.data
+
+    def log(self, epsilon):
+        out = Value(np.log(self.data + epsilon), (self,), 'log')
+
+        def _backward():
+            self.grad += ((self.data + epsilon)**-1) * out.grad
+        out._backward = _backward
+
+        return out
+
+    def exp(self):
+        out = Value(np.exp(self.data), (self,), 'exp')
+
+        def _backward():
+            self.grad += out.data * out.grad
+        out._backward = _backward
+
+        return out
 
     def __repr__(self):
         return f"Value(data={self.data}, grad={self.grad})"
