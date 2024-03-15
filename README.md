@@ -1,3 +1,8 @@
+# microgradSoftmaxPlayground
+
+This is purely for educational purpose. I've a added softmax layer so the micrograd can be used, for example, to classify images. There is a demo script included that uses MNIST dataset.
+Because micrograd uses explicit models (classes) for neurons, there can be milions of __init__ calls of the Value class. This causes terrible performance degradation, hence the example is limited to only 3 digits ("0", "1", "2") and only 5% data from the dataset is used for training.
+Note, the softmax layer can be logically put in different places. It can be a each neuron's activation function in the last layer, it can be a separate single-neuron layer with vector output or it can be part of loss function. Here just for educational purposes it is put as an activation function of each neuron in the last layer of the MLP network.
 
 # micrograd
 
