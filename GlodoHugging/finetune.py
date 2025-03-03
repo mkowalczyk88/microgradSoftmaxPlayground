@@ -1,9 +1,13 @@
 import sys
 import importlib.util
 import os
-import time
+#import time
+
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer
 from datasets import load_dataset, load_from_disk
+#from accelerate import Accelerator
+from peft import get_peft_model, LoraConfig, TaskType
+
 
 def import_config(filename):
     if not os.path.exists(filename):
@@ -18,10 +22,10 @@ def import_config(filename):
 
 config = import_config(sys.argv[1] if len(sys.argv) > 1 else "configs/default.py")
 
-dataset = load_dataset("text", data_dir="datasets", sample_by="document")
+dataset = load_dataset("text", data_dir="./datasets", sample_by="document")
 
 # Path to save the tokenized dataset
-tokenized_dataset_path = "out/tokens-glodomorek-medium"
+tokenized_dataset_path = "out/tokens-glodomorek-large"
 tokenizer = AutoTokenizer.from_pretrained(config.model_data)
 tokenizer.pad_token = tokenizer.eos_token
 
@@ -46,7 +50,7 @@ else:
     # the 'text' column cannot be handled and there will be error like this:
     # 'Column 1 named input_ids expected length 1 but got length 62'
     tokenized_datasets = dataset.map(tokenize_function, batched=True, remove_columns=["text"])
-
+    tokenized_datasets = tokenized_datasets.remove_columns("overflow_to_sample_mapping")
     # By flattening or otherwise reformatting the output so that each chunk becomes an independent example,
     # you can avoid the mismatch error and ensure all parts of your long document are preserved for training.
     # tokenized_datasets_flattened = tokenized_datasets.flatten()
@@ -62,36 +66,58 @@ train_dataset = tokenized_datasets["train"]
 #eval_dataset = tokenized_datasets["test"]
 
 training_args = TrainingArguments(
-    report_to="none",
-    run_name="Glodotuning-" + str(time.time()),
-    output_dir="./out/glodomorek-ft-medium-checkpoints",      # Katalog zapisu wyników
+    report_to="wandb",
+    run_name="Glodotuning-bf16-120-steps-lora-rank-4-gpt-large", #+ str(time.time()),
+    output_dir="./out/glodomorek-ft-large-checkpoints",      # Katalog zapisu wyników
     #eval_strategy="epoch", # Ocena modelu po każdej epoce
     do_eval=False,
     eval_strategy='no',
     #save_strategy="best",       # Zapisywanie checkpointów co epokę
     save_strategy="steps",
-    save_steps=30,
+    save_steps=120,
     learning_rate=3e-5,          # Współczynnik uczenia
     per_device_train_batch_size=1,  # Batch size na GPU/CPU
     per_device_eval_batch_size=1,   # Batch size dla walidacji
     #num_train_epochs=1,         # Liczba epok treningowych
-    max_steps = 30,
+    max_steps = 120,
     weight_decay=1e-1,          # Regularizacja L2
     logging_dir="./logs",       # Katalog logów
     logging_steps=10,           # Częstotliwość logowania
     push_to_hub=False,           # Jeśli chcesz zapisać model na HF Hub, zmień na True
     gradient_accumulation_steps=32,
     bf16=True,
+    fp16=False,
     adam_beta2=0.95,
     warmup_steps=2000,
     lr_scheduler_type='constant',
     seed=42,
     data_seed=42,
+    remove_unused_columns=False,
 )
 
 model = AutoModelForCausalLM.from_pretrained(config.model_data).to(config.device)
+
+peft_config = LoraConfig(
+    task_type=TaskType.CAUSAL_LM,
+    inference_mode=False,
+    r=4,              # Low-rank dimension; adjust as needed.
+    lora_alpha=32,    # Scaling factor.
+    lora_dropout=0.1, # Dropout probability.
+    fan_in_fan_out=True,
+    init_lora_weights="gaussian",
+)
+model = get_peft_model(model, peft_config)
+
 model.compile()
 
+# Inicjalizacja Accelerate
+#accelerator = Accelerator(dynamo_backend="inductor")
+
+# Wczytanie modelu
+#model = AutoModelForCausalLM.from_pretrained(config.model_data)
+
+# Przygotowanie modelu i zbioru danych do trenowania
+#model, train_dataset = accelerator.prepare(model, train_dataset)
 
 trainer = Trainer(
     model=model,
@@ -105,4 +131,4 @@ print("Start SFT")
 trainer.train()
 
 print("Saving models")
-trainer.save_model("out/fine_tuned_model-medium")
+trainer.save_model("out/lora-fine_tuned_model-large")

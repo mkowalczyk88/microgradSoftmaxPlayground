@@ -3,6 +3,7 @@ import importlib.util
 import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from transformers import set_seed
+from peft import PeftModel
 
 set_seed(42)
 
@@ -21,11 +22,15 @@ config = import_config(sys.argv[1] if len(sys.argv) > 1 else "configs/default.py
 
 device = "cuda"
 #model_path = "sdadas/polish-gpt2-small"
-model_path = "out/fine_tuned_model-medium"
+#model_path = "out/fine_tuned_model-large"
+model_path = "out/lora-fine_tuned_model-large"
 
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 
-model = AutoModelForCausalLM.from_pretrained(model_path).to(device)
+model = AutoModelForCausalLM.from_pretrained(config.model_data, device_map="auto")
+
+model = PeftModel.from_pretrained(model, model_path)
+model.eval()
 #model.compile()
 
 
