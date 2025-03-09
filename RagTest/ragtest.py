@@ -1,14 +1,15 @@
 import os
+import torch
 from dotenv import load_dotenv
+
 load_dotenv()
 USER_AGENT = os.getenv("USER_AGENT")
 
 import bs4
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_huggingface import HuggingFacePipeline
+from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.prompts import ChatPromptTemplate
-#from langchain import hub
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -24,18 +25,32 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
 if not os.getenv("HUGGINGFACEHUB_API_TOKEN"):
     os.environ["HUGGINGFACEHUB_API_TOKEN"] = "..."
 
-#from langchain.chat_models import init_chat_model
-#llm = init_chat_model("claude-3-5-sonnet-latest", model_provider="anthropic")
+model_name = "deepseek-ai/deepseek-llm-7b-chat"
+
+prompt = ChatPromptTemplate([
+    {"role": "user",
+     "content":
+"""You are an assistant for question-answering tasks. Use the following pieces of retrieved context to answer the question. \
+If you don't know the answer, just say that you don't know. Use three sentences maximum and keep the answer concise.
+Context: {context}
+Question: {question}"""}]
+)
 
 llm = HuggingFacePipeline.from_model_id(
-    model_id="Locutusque/gpt2-medium-conversational",
-    task="text-generation",
-    pipeline_kwargs={
-        "max_new_tokens": 200,
-        "top_k": 50,
-        "temperature": 0.1,
-    },
+     model_id=model_name,
+     task="text-generation",
+     model_kwargs={
+         "torch_dtype": torch.bfloat16,
+     },
+     pipeline_kwargs={
+         "max_new_tokens": 200,
+         "top_k": 50,
+         "temperature": 0.1,
+         "return_full_text": False, # Needed to avoid duplicating input prompt in the answer
+     },
 )
+
+chat_model = ChatHuggingFace(llm=llm)
 
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
 vector_store = InMemoryVectorStore(embeddings)
@@ -57,38 +72,27 @@ all_splits = text_splitter.split_documents(docs)
 # Index chunks
 _ = vector_store.add_documents(documents=all_splits)
 
-# Define prompt for question-answering
-#prompt = hub.pull("rlm/rag-prompt")
-prompt = ChatPromptTemplate([
-    ("user", "<|USER|> Context: {context} . Question: {question} <|ASSISTANT|>")])
-
-
 # Define state for application
 class State(TypedDict):
     question: str
     context: List[Document]
     answer: str
 
-
 # Define application steps
 def retrieve(state: State):
     retrieved_docs = vector_store.similarity_search(state["question"], k = 3)
     return {"context": retrieved_docs}
 
-
 def generate(state: State):
     docs_content = "\n\n".join(doc.page_content for doc in state["context"])
     messages = prompt.invoke({"question": state["question"], "context": docs_content})
-    response = llm.invoke(messages, stop = ["<|End|>"])
-    #return {"answer": response.content}
-    return {"answer": response}
-
+    response = chat_model.invoke(messages)
+    return {"answer": response.content}
 
 # Compile application and test
 graph_builder = StateGraph(State).add_sequence([retrieve, generate])
 graph_builder.add_edge(START, "retrieve")
 graph = graph_builder.compile()
 
-
-response = graph.invoke({"question": "What is Tree of Thoughts?"})
-print(response["answer"])
+output = graph.invoke({"question": "What is Tree of Thoughts?"})
+print(output["answer"])

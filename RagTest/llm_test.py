@@ -2,6 +2,6 @@
 from transformers import pipeline
 
 pipe = pipeline("text-generation", model="Locutusque/gpt2-medium-conversational")
-response = pipe("<|USER|> What is the meaning of life? <|ASSISTANT|>", max_length = 100, num_return_sequences=3)
+response = pipe("<|USER|> What is Tree of Thoughts? <|ASSISTANT|>", max_length = 200, num_return_sequences=1)
 
 print(response)
